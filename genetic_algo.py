@@ -8,7 +8,8 @@ from numpy.random import choice
 
 from genetic_utils import Operation, OPERATIONS
 
-MAX_DEPTH = 6  # Max depth of expression tree
+MAX_DEPTH = 6  # Max depth of an expression tree
+MIN_DEPTH = 3  # Minimum depth of an expression tree
 
 
 @dataclass
@@ -48,6 +49,21 @@ class OperationGene:
         """
         return deepcopy(self)
 
+    def _traverse(self, node: "OperationGene", func: Callable) -> None:
+        """Traverses the expression tree and apply a function on it"""
+        if node is None:
+            return
+        func(node)
+        if node.left:
+            self._traverse(node.left, func)
+        if node.right:
+            self._traverse(node.right, func)
+
+    def __str__(self):
+        parts = []
+        self._traverse(node=self, func=lambda node: parts.append(str(node.operation)))
+        return " ".join(parts)
+
 
 class Chromosome:
     def __init__(
@@ -67,21 +83,23 @@ class Chromosome:
         self.fitness_fn = fitness_fn
         self.fitness: Optional[float] = 0
 
+    def _traverse(self, node: OperationGene, func: Callable) -> None:
+        """Traverses the expression tree and apply a function on it"""
+        if node is None:
+            return
+        func(node)
+        if node.left:
+            self._traverse(node.left, func)
+        if node.right:
+            self._traverse(node.right, func)
+
     def flatten(self) -> List["OperationGene"]:
         """
         Flattens the whole operation tree into a list.
         :return: The list of flattened operation trees.
         """
         flattened = []
-
-        def traverse(node):
-            if node is None:
-                return
-            flattened.append(node)
-            traverse(node.left)
-            traverse(node.right)
-
-        traverse(self.root)
+        self._traverse(self.root, lambda node: flattened.append(node))
         return flattened
 
     def evaluate(self, x: torch.Tensor) -> torch.Tensor:
@@ -109,6 +127,15 @@ class Chromosome:
         new_operation = random.choice(candidates)
         chosen_gene.operation = new_operation
 
+    def add_gene(self, gene: OperationGene) -> None:
+        """Adds a gene to the chromosome"""
+
+    def __str__(self) -> str:
+        # parts = []
+        # self._traverse(self.root, lambda node: parts.append(str(node)))
+        # return " ".join(parts)
+        str(self.root)
+
 
 class GeneticAlgorithm:
 
@@ -118,12 +145,15 @@ class GeneticAlgorithm:
             fitness_fn=Callable,
             max_generations: int = 20,
             max_depth: int = MAX_DEPTH,
-            mutation_rate: float = 0.1,
+            mutation_rate: float = 0.2,
     ):
         self.population_size = population_size
         self.fitness_fn = fitness_fn
         self.max_generations = max_generations
         self.max_depth = max_depth
+        self.mutation_rate = mutation_rate
+
+        self.population: List[Chromosome] = []
 
     def crossover(self, parent1: "Chromosome", parent2: "Chromosome") -> "Chromosome":
         """Perform subtree crossover between parent1 and parent2,
@@ -186,6 +216,12 @@ class GeneticAlgorithm:
         """Selecting parents for crossover and then applying crossover."""
         pass
 
+    def mutate(self):
+        for candidate in self.population:
+            chance = random.random()
+            if chance < self.mutation_rate:
+                candidate.mutate()
+
 
 def __init__(
         self,
@@ -203,7 +239,9 @@ def __init__(
     self.crossover_rate = crossover_rate
     self.mutation_rate = mutation_rate
 
-    self.population: List[Chromosome] = []
+    self.population: List[Chromosome] = [
+        random_chromosome() for x in range(self.population_size)
+    ]
 
 
 def fitness_function(chromosome: Chromosome) -> float:
@@ -214,12 +252,15 @@ def random_gene() -> OperationGene:
     """Randomly constrcuts and returns a non-ary or unary or binary gene"""
     chance = random.random()
     X_tensor = OPERATIONS[0][-1]  #
+    X_tensor = OperationGene(X_tensor)
     non_ary_op = random.choice(OPERATIONS[0])
+    non_ary_op = OperationGene(non_ary_op)
     unary_op = random.choice(OPERATIONS[1])
+    unary_op = OperationGene(unary_op, X_tensor)
     if chance < 1 / 3:
-        return OperationGene(non_ary_op)
+        return non_ary_op
     elif chance < 2 / 3:
-        return OperationGene(unary_op, X_tensor)
+        return unary_op
     else:
         binary_op = random.choice(OPERATIONS[2])
         chance = random.random()  # XXX
@@ -228,8 +269,19 @@ def random_gene() -> OperationGene:
         else:
             return OperationGene(binary_op, X_tensor, non_ary_op)
 
-# for i in range(100):
-#     print(random_gene())
+
+def random_chromosome(min_depth=MIN_DEPTH, max_depth=MAX_DEPTH) -> Chromosome:
+    """Constrcuts and returns a randomly generated chromosome with restriction of depth in mind"""
+    a = random_gene()
+    b = Chromosome(a)
+    return b
+
+
+ga = GeneticAlgorithm(population_size=50)
+b = 10
+
+for i in range(100):
+    print(random_gene())
 
 # def random_gene(min_depth: int = 2, max_depth: int = 4) -> OperationGene:
 #     """Create a random expression tree with controlled depth."""

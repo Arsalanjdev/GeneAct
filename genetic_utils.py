@@ -11,6 +11,9 @@ class Operation:
     role: str
     func: Callable
 
+    def __str__(self):
+        return self.name
+
 
 X_Operation = Operation("X", "X", lambda x: x)
 OPERATIONS: Dict[int, List[Operation]] = {
