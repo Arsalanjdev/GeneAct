@@ -4,26 +4,65 @@ from typing import Callable
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
+from torchvision import datasets
+from torchvision import transforms
+
 from msnit.base_msnit import MLP
+
+# data_utils.py
+from torchvision import datasets, transforms
+from torch.utils.data import DataLoader
+
+
+def get_mnist_loaders(batch_size=128, num_workers=4):
+    """Returns preconfigured train and test loaders"""
+    transform = transforms.Compose(
+        [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+    )
+
+    train_set = datasets.MNIST(
+        root="./data", train=True, download=True, transform=transform
+    )
+
+    test_set = datasets.MNIST(root="./data", train=False, transform=transform)
+
+    pin_memory = torch.cuda.is_available()
+    train_loader = DataLoader(
+        train_set,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=num_workers > 0,
+    )
+
+    test_loader = DataLoader(
+        test_set,
+        batch_size=batch_size * 2,  # Larger batches for evaluation
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+    )
+
+    return train_loader, test_loader
 
 
 class BaseNeuralNetwork(ABC):
     def __init__(
             self,
-            train_loader: DataLoader,
-            test_loader: DataLoader,
             activation_function: Callable,
     ):
-        self.train_loader = train_loader
-        self.test_loader = test_loader
+        # self.train_loader = train_loader
+        # self.test_loader = test_loader
         self.model: nn.Module = None
         self.activation_function = activation_function
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    @abstractmethod
-    def build_model(self, activation_fn: callable) -> nn.Module:
-        """Constructs and returns a fresh nn.Module, using the given activation."""
-        pass
+    #
+    # @abstractmethod
+    # def build_model(self, activation_fn: callable) -> nn.Module:
+    #     """Constructs and returns a fresh nn.Module, using the given activation."""
+    #     pass
 
     @abstractmethod
     def train(self, epochs: int = 1) -> None:
@@ -37,14 +76,33 @@ class BaseNeuralNetwork(ABC):
 
 
 class MLPModel(BaseNeuralNetwork):
-    def __init__(self, train_loader: DataLoader, test_loader: DataLoader):
-        super().__init__(train_loader, test_loader)
+    def __init__(
+            self,
+            activation_function: Callable,
+    ):
+        super().__init__(activation_function)
+
         self.model = MLP(activation_fn=self.activation_function).to(self.device)
-        self.criterion = nn.MSELoss()
+        self.criterion = nn.CrossEntropyLoss()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
+        self.scaler = torch.cuda.amp.GradScaler(enabled=self.device.type == "cuda")
+        train_dataset = datasets.MNIST(
+            root="./data", train=True, transform=transforms.ToTensor(), download=True
+        )
+
+        test_dataset = datasets.MNIST(
+            root="./data", train=False, transform=transforms.ToTensor()
+        )
+
+        self.train_loader = DataLoader(
+            dataset=train_dataset, batch_size=64, shuffle=True
+        )
+        self.test_loader = DataLoader(
+            dataset=test_dataset, batch_size=64, shuffle=False
+        )
 
     # XXX:use factory method?
-    def train(self, epochs: int = 3) -> None:
+    def train(self, epochs: int = 2) -> None:
         for epoch in range(epochs):
             for batch_idx, (data, targets) in enumerate(self.train_loader):
                 # Move data to device
@@ -83,3 +141,4 @@ class MLPModel(BaseNeuralNetwork):
 
         accuracy = float(num_correct) / float(num_samples) * 100
         print(f"Accuracy: {accuracy:.2f}%")
+        return accuracy

@@ -1,8 +1,8 @@
 import random
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import List, Callable, Optional
-
+from typing import List, Callable, Optional, Type
+from models import BaseNeuralNetwork
 import torch
 
 from genetic_utils import Operation, OPERATIONS
@@ -153,7 +153,7 @@ class GeneticAlgorithm:
     def __init__(
             self,
             population_size: int,
-            model_factory: Callable,
+            model: Type[BaseNeuralNetwork],
             fitness_fn=Callable,
             max_generations: int = 20,
             max_depth: int = MAX_DEPTH,
@@ -171,11 +171,25 @@ class GeneticAlgorithm:
         ]
         self.crossover_rate = crossover_rate
         self.generation = 0
-        self.model = model_factory()
+        self.model = model
+
+    def get_max_fit_chromosome(self) -> Chromosome:
+        """Finds and returns the most fit chromosome"""
+        return max(self.population, key=lambda x: x.fitness)
+
+    def evaluate_chromosome(self, chromosome: Chromosome) -> float:
+        """"""
+        activation_function = chromosome.to_activation_function()
+        model: BaseNeuralNetwork = self.model(activation_function)
+        model.train(epochs=2)
+        acc = model.evaluate()
+        b = acc
+        return acc
 
     def evaluate_population(self) -> None:
         for chromosome in self.population:
-            chromosome.compute_fitness()
+            chromosome.fitness = self.evaluate_chromosome(chromosome)
+            print(f"Chromosome {chromosome}: {chromosome.fitness}")
 
     def crossover(self, parent1: "Chromosome", parent2: "Chromosome") -> "Chromosome":
         """Perform subtree crossover between parent1 and parent2,
@@ -229,7 +243,7 @@ class GeneticAlgorithm:
         new_child = Chromosome(
             root=tree1, fitness_fn=parent1.fitness_fn, max_depth=parent1.max_depth
         )
-        if len(new_child.flatten()) > self.max_nodes:
+        if len(new_child.flatten()) > self.max_depth:
             return parent1.mutate()
 
         return new_child
@@ -241,9 +255,6 @@ class GeneticAlgorithm:
 
     def mate(self, selection_method: Callable[[Optional[int]], Chromosome]):
         """Breeding new chromosomes based on the selection method provided"""
-        if self.generation >= self.max_generations:
-            return max(self.population, key=x.fitness)
-
         new_population: List[Chromosome] = []
 
         # Elitism strategy
@@ -260,13 +271,24 @@ class GeneticAlgorithm:
                 new_population.append(child)
 
         self.population = new_population
-        self.generation += 1
 
     def mutate(self):
         for candidate in self.population:
             chance = random.random()
             if chance < self.mutation_rate:
                 candidate.mutate()
+
+    def run(self):
+        """Running the Genetic algorithm up to max_generations times."""
+        # initial evaluation
+        self.evaluate_population()
+        for generation in range(self.max_generations):
+            print(f"Generation: {generation}")
+            self.mate(selection_method=self._tournament_selection)
+            self.mutate()
+            self.evaluate_population()
+        best = self.get_max_fit_chromosome()
+        return best
 
     def __str__(self):
         return str(self.population)

@@ -41,7 +41,7 @@ OPERATIONS: Dict[int, List[Operation]] = {
         Operation("sqrt", "TRANSFORM", lambda x: torch.sqrt(torch.abs(x) + 1e-8)),
         Operation("abs", "TRANSFORM", torch.abs),
         Operation("softplus", "ACTIVATION", F.softplus),
-        Operation("heavyside", "ACTIVATION", torch.heaviside),
+        # Operation("heavyside", "ACTIVATION", torch.heaviside()),
     ],
     2: [
         Operation("add", "COMBINER", lambda x, y: x + y),
