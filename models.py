@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision import transforms
 
-from msnit.base_msnit import MLP
+from mnist.base_msnit import MLP
 
 # data_utils.py
 from torchvision import datasets, transforms

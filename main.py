@@ -3,7 +3,7 @@ import questionary
 
 import models
 from genetic_algo import GeneticAlgorithm
-from msnit.base_msnit import MLP
+from mnist.base_msnit import MLP
 from models import *
 
 ga_msnit = GeneticAlgorithm(
