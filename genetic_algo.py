@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import List, Callable, Optional
 
 import torch
-from numpy.random import choice
 
 from genetic_utils import Operation, OPERATIONS
 
@@ -79,7 +78,7 @@ class Chromosome:
         :param max_depth:
         """
         self.max_depth = max_depth
-        self.root = root or random_gene(max_depth)
+        self.root = root or random_gene()
         self.fitness_fn = fitness_fn
         self.fitness: Optional[float] = 0
 
@@ -130,11 +129,23 @@ class Chromosome:
     def add_gene(self, gene: OperationGene) -> None:
         """Adds a gene to the chromosome"""
 
+    def to_activation_function(self) -> Callable[[torch.Tensor], torch.Tensor]:
+        """Convert the expression tree of the chromosome back to an activation function"""
+        root = self.root.clone()
+
+        def activation(x: torch.Tensor) -> torch.Tensor:
+            return root.evaluate(x)
+
+        return activation
+
     def __str__(self) -> str:
         # parts = []
         # self._traverse(self.root, lambda node: parts.append(str(node)))
         # return " ".join(parts)
-        str(self.root)
+        return str(self.root)
+
+    def __repr__(self):
+        return str(self)
 
 
 class GeneticAlgorithm:
@@ -142,10 +153,12 @@ class GeneticAlgorithm:
     def __init__(
             self,
             population_size: int,
+            model_factory: Callable,
             fitness_fn=Callable,
             max_generations: int = 20,
             max_depth: int = MAX_DEPTH,
             mutation_rate: float = 0.2,
+            crossover_rate: float = 0.8,
     ):
         self.population_size = population_size
         self.fitness_fn = fitness_fn
@@ -153,7 +166,16 @@ class GeneticAlgorithm:
         self.max_depth = max_depth
         self.mutation_rate = mutation_rate
 
-        self.population: List[Chromosome] = []
+        self.population: List[Chromosome] = [
+            Chromosome() for _ in range(population_size)
+        ]
+        self.crossover_rate = crossover_rate
+        self.generation = 0
+        self.model = model_factory()
+
+    def evaluate_population(self) -> None:
+        for chromosome in self.population:
+            chromosome.compute_fitness()
 
     def crossover(self, parent1: "Chromosome", parent2: "Chromosome") -> "Chromosome":
         """Perform subtree crossover between parent1 and parent2,
@@ -212,9 +234,33 @@ class GeneticAlgorithm:
 
         return new_child
 
-    def mate(self, partner: "Chromosome") -> "Chromosome":
-        """Selecting parents for crossover and then applying crossover."""
-        pass
+    def _tournament_selection(self, tournament_size=3) -> Chromosome:
+        """Choosing a chromosome based on fitness"""
+        tournament = random.sample(self.population, tournament_size)
+        return max(tournament, key=lambda x: x.fitness)
+
+    def mate(self, selection_method: Callable[[Optional[int]], Chromosome]):
+        """Breeding new chromosomes based on the selection method provided"""
+        if self.generation >= self.max_generations:
+            return max(self.population, key=x.fitness)
+
+        new_population: List[Chromosome] = []
+
+        # Elitism strategy
+        new_population.append(max(self.population, key=lambda x: x.fitness))
+
+        while len(new_population) < len(self.population):
+            p1 = selection_method()
+            p2 = selection_method()
+
+            if random.random() > self.crossover_rate:
+                new_population.append(random.choice([p1, p2]))
+            else:
+                child = self.crossover(p1, p2)
+                new_population.append(child)
+
+        self.population = new_population
+        self.generation += 1
 
     def mutate(self):
         for candidate in self.population:
@@ -222,34 +268,22 @@ class GeneticAlgorithm:
             if chance < self.mutation_rate:
                 candidate.mutate()
 
+    def __str__(self):
+        return str(self.population)
 
-def __init__(
-        self,
-        population_size: int,
-        fitness_function: Callable,
-        min_length: int = 3,
-        max_length: int = 6,
-        crossover_rate: float = 0.7,
-        mutation_rate: float = 0.1,
-):
-    self.population_size = population_size
-    self.fitness_function = fitness_function
-    self.min_length = min_length
-    self.max_length = max_length
-    self.crossover_rate = crossover_rate
-    self.mutation_rate = mutation_rate
-
-    self.population: List[Chromosome] = [
-        random_chromosome() for x in range(self.population_size)
-    ]
-
-
-def fitness_function(chromosome: Chromosome) -> float:
-    pass
+    # def fitness_population(self):
+    #     """Computes a simple normalization [0-10] score of each individual chromosome based on the score of max and min.
+    #     Might change it later."""
+    #     max_chromosome = max(self.population, key=lambda x: x.fitness)
+    #     min_chromosome = min(self.population, key=lambda x: x.fitness)
+    #     for chromosome in self.population:
+    #         score = (chromosome.fitness - min_chromosome) / (
+    #             max_chromosome.fitness - min_chromosome
+    #         )
 
 
 def random_gene() -> OperationGene:
-    """Randomly constrcuts and returns a non-ary or unary or binary gene"""
+    """Randomly constructs and returns a non-ary or unary or binary gene"""
     chance = random.random()
     X_tensor = OPERATIONS[0][-1]  #
     X_tensor = OperationGene(X_tensor)
@@ -257,9 +291,7 @@ def random_gene() -> OperationGene:
     non_ary_op = OperationGene(non_ary_op)
     unary_op = random.choice(OPERATIONS[1])
     unary_op = OperationGene(unary_op, X_tensor)
-    if chance < 1 / 3:
-        return non_ary_op
-    elif chance < 2 / 3:
+    if chance < 1 / 2:
         return unary_op
     else:
         binary_op = random.choice(OPERATIONS[2])
@@ -269,19 +301,16 @@ def random_gene() -> OperationGene:
         else:
             return OperationGene(binary_op, X_tensor, non_ary_op)
 
+# def random_chromosome(min_depth=MIN_DEPTH, max_depth=MAX_DEPTH) -> Chromosome:
+#     """Constrcuts and returns a randomly generated chromosome with restriction of depth in mind"""
+#     return Chromosome(random_gene(), min_depth, max_depth)
 
-def random_chromosome(min_depth=MIN_DEPTH, max_depth=MAX_DEPTH) -> Chromosome:
-    """Constrcuts and returns a randomly generated chromosome with restriction of depth in mind"""
-    a = random_gene()
-    b = Chromosome(a)
-    return b
-
-
-ga = GeneticAlgorithm(population_size=50)
-b = 10
-
-for i in range(100):
-    print(random_gene())
+#
+# ga = GeneticAlgorithm(population_size=50)
+#
+# print(str(ga))
+# for i in range(100):
+#     print(Chromosome())
 
 # def random_gene(min_depth: int = 2, max_depth: int = 4) -> OperationGene:
 #     """Create a random expression tree with controlled depth."""
